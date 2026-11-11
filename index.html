@@ -33,19 +33,22 @@ h1{font:800 clamp(28px,6.5vw,46px)/1 var(--display);margin:0;letter-spacing:-.02
 .owner.on{border-color:var(--accent);color:var(--accent)}
 
 /* departments */
-.depts{display:flex;gap:8px;overflow-x:auto;padding:14px 0 6px;margin:0 -16px;padding-left:16px;padding-right:16px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
-.dept{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:8px 14px;font:500 14px var(--body);cursor:pointer;white-space:nowrap}
-.dept small{color:var(--muted);font-variant-numeric:tabular-nums;margin-left:4px}
+.depts{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;padding:16px 0 4px}
+.dept{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:12px 6px 10px;font:500 12.5px/1.25 var(--body);cursor:pointer;text-align:center;min-height:92px}
+.dept svg{width:28px;height:28px;flex:none;stroke:var(--accent)}
+.dept .c{position:absolute;top:6px;right:8px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .dept[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.dept[aria-pressed="true"] small{color:inherit;opacity:.8}
+.dept[aria-pressed="true"] svg{stroke:var(--accent-ink)}
+.dept[aria-pressed="true"] .c{color:var(--accent-ink);opacity:.85}
+.dept:hover{border-color:var(--accent)}
+@media (max-width:420px){.depts{grid-template-columns:repeat(3,1fr)}.dept{min-height:86px;font-size:12px}}
 
 /* add panel */
 .add{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0 8px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;display:grid;gap:10px;box-shadow:0 8px 22px -16px rgba(20,40,35,.45)}
-.where{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
-.where label{color:var(--muted)}
-select,input[type=text],input[type=url]{font:16px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;min-height:46px;padding:0 12px;min-width:0}
-select{flex:1 1 200px}
+.where{font-size:14px;color:var(--muted);text-align:center}
+.where b{color:var(--ink)}
+input[type=text],input[type=url]{font:16px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;min-height:46px;padding:0 12px;min-width:0}
 .btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .big{display:flex;align-items:center;justify-content:center;gap:10px;min-height:58px;border:0;border-radius:12px;font:600 16px var(--body);cursor:pointer;padding:8px 12px}
 .big svg{width:22px;height:22px;flex:none}
@@ -120,10 +123,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 
   <section class="add" aria-label="Add something">
     <div class="card">
-      <div class="where">
-        <label for="deptSel">Adding to</label>
-        <select id="deptSel"></select>
-      </div>
+      <div class="where" id="where"></div>
       <div class="btns">
         <button class="big p" id="pickBtn" type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-8 8"/></svg>
@@ -210,22 +210,42 @@ const CONFIG = {
     if(s<604800) return Math.floor(s/86400)+" d ago"; return new Date(t).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); };
   const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "general";
   const pubUrl = path => sb.storage.from(CONFIG.BUCKET).getPublicUrl(path).data.publicUrl;
-  const currentAddDept = () => $("deptSel").value;
+  const currentAddDept = () => S.dept==="all" ? null : S.dept;
 
-  /* departments UI */
-  function buildDepts(){
-    const sel=$("deptSel"); sel.textContent="";
-    CONFIG.DEPARTMENTS.forEach(d=>sel.append(el("option",{value:d,text:d})));
-    sel.value = S.dept==="all" ? CONFIG.DEPARTMENTS[0] : S.dept;
+  /* departments UI — icon tiles */
+  const ICONS = {
+    all:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    sofa:'<path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3"/><path d="M2 13a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v4H2z"/><path d="M5 17v2M19 17v2"/>',
+    door:'<path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17"/><path d="M3 21h18"/><circle cx="15" cy="12" r="1"/>',
+    kitchen:'<path d="M4 10h16v2a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6z"/><path d="M2 10h20"/><path d="M9 6c0-1 1-1 1-2M14 6c0-1 1-1 1-2"/><path d="M8 18l-1 3M16 18l1 3"/>',
+    tv:'<rect x="2" y="5" width="20" height="13" rx="2"/><path d="M8 21h8M12 18v3"/><path d="M9 2l3 3 3-3"/>',
+    dining:'<path d="M3 10h18"/><path d="M5 10v10M19 10v10"/><path d="M8 3v4a2 2 0 0 0 4 0V3M10 7v0"/><path d="M16 3c1.5 1 2 2.5 2 4h-2z"/>',
+    bed:'<path d="M3 18V6"/><path d="M3 13h18v5"/><path d="M21 13v-2a3 3 0 0 0-3-3h-7v5"/><circle cx="7" cy="10" r="2"/><path d="M3 18h18"/>',
+    bedGarden:'<path d="M3 19V9"/><path d="M3 15h14v4"/><path d="M3 19h14"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M19 21V11"/><path d="M19 13c-2 0-3-1.5-3-3.5 2 0 3 1.5 3 3.5zM19 11c0-2 1-3.5 3-3.5 0 2-1 3.5-3 3.5z"/>',
+    bedFamily:'<path d="M3 19V9"/><path d="M3 15h18v4"/><path d="M3 19h18"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M15 3a2 2 0 1 1 0 .01M20 5a1.5 1.5 0 1 1 0 .01"/><path d="M13 10a2 2 0 0 1 4 0M18.5 10a1.5 1.5 0 0 1 3 0"/>'
+  };
+  function iconFor(d){
+    const n=d.toLowerCase();
+    const k = d==="all"?"all": n.includes("living")?"sofa": n.includes("reception")?"door": n.includes("kitchen")?"kitchen":
+      n.includes("tv")?"tv": n.includes("dining")?"dining": n.includes("garden")?"bedGarden": n.includes("family")?"bedFamily":
+      n.includes("bed")?"bed":"all";
+    const s=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    s.setAttribute("viewBox","0 0 24 24"); s.setAttribute("fill","none"); s.setAttribute("stroke-width","1.7");
+    s.setAttribute("stroke-linecap","round"); s.setAttribute("stroke-linejoin","round"); s.setAttribute("aria-hidden","true");
+    s.innerHTML=ICONS[k]; return s;
+  }
+  function renderWhere(){
+    const w=$("where"); w.textContent="";
+    if(S.dept==="all"){ w.append("Tap a room above, then add photos, videos or links."); }
+    else { w.append("Adding to ", el("b",{text:S.dept})); }
   }
   function renderDepts(){
     const nav=$("depts"); nav.textContent="";
     const count = d => S.items.filter(i=>d==="all"||i.department===d).length;
-    const mk = (d,label) => el("button",{class:"dept",type:"button","aria-pressed":String(S.dept===d),onclick:()=>{
-        S.dept=d; S.shown=60; try{localStorage.setItem("dn_dept",d);}catch{}
-        if(d!=="all") $("deptSel").value=d; render(); }},
-      [label, el("small",{text:String(count(d))})]);
-    nav.append(mk("all","All"));
+    const mk = (d,label) => el("button",{class:"dept",type:"button","aria-pressed":String(S.dept===d),title:label,onclick:()=>{
+        S.dept=d; S.shown=60; try{localStorage.setItem("dn_dept",d);}catch{} render(); }},
+      [iconFor(d), el("span",{text:label}), el("span",{class:"c",text:String(count(d))})]);
+    nav.append(mk("all","All rooms"));
     CONFIG.DEPARTMENTS.forEach(d=>nav.append(mk(d,d)));
     // include any department that exists in data but was removed from the list
     [...new Set(S.items.map(i=>i.department).filter(d=>d&&!CONFIG.DEPARTMENTS.includes(d)))].forEach(d=>nav.append(mk(d,d)));
@@ -235,7 +255,7 @@ const CONFIG = {
 
   /* wall */
   function render(){
-    renderDepts();
+    renderDepts(); renderWhere();
     const list=S.items.filter(i=>(S.dept==="all"||i.department===S.dept)&&(S.type==="all"||i.kind===S.type));
     const wall=$("wall"); wall.textContent="";
     list.slice(0,S.shown).forEach(i=>wall.append(card(i)));
@@ -321,9 +341,11 @@ const CONFIG = {
       addItem(ins.data); r.ok();
     }catch(e){ const m=String(e&&(e.message||e.error)||""); r.err(/size|large|exceed/i.test(m)?"Too big (max "+CONFIG.MAX_MB+" MB)":/mime|type/i.test(m)?"File type not allowed":"Upload failed — try again"); console.error(e); }
   }
-  const handleFiles=list=>{ if(!sb) return toast("Not connected yet"); [...list].forEach(uploadFile); };
+  const needRoom=()=>{ if(S.dept!=="all") return false; toast("Tap a room first, then add"); $("depts").scrollIntoView({behavior:"smooth",block:"start"}); return true; };
+  const handleFiles=list=>{ if(!sb) return toast("Not connected yet"); if(needRoom()) return; [...list].forEach(uploadFile); };
 
   async function addLink(raw,note){
+    if(needRoom()) return false;
     const url=normUrl(raw); if(!url){ toast("That doesn't look like a web link"); return false; }
     const {data,error}=await sb.from("posts").insert({kind:"link",link_url:url,note:(note||"").trim().slice(0,300)||null,department:currentAddDept()}).select().single();
     if(error){ toast("Couldn't add the link — try again"); console.error(error); return false; }
@@ -331,9 +353,9 @@ const CONFIG = {
   }
   function addItem(row){ if(!S.items.some(x=>x.id===row.id)){ S.items.unshift(row); S.items.sort((a,b)=>b.created_at.localeCompare(a.created_at)); render(); } }
 
-  $("pickBtn").onclick=()=>$("fileIn").click();
+  $("pickBtn").onclick=()=>{ if(needRoom()) return; $("fileIn").click(); };
   $("fileIn").onchange=e=>{ handleFiles(e.target.files); e.target.value=""; };
-  $("linkBtn").onclick=()=>{ const f=$("linkForm"); f.hidden=!f.hidden; $("linkBtn").setAttribute("aria-expanded",String(!f.hidden)); if(!f.hidden) $("linkUrl").focus(); };
+  $("linkBtn").onclick=()=>{ if(needRoom()) return; const f=$("linkForm"); f.hidden=!f.hidden; $("linkBtn").setAttribute("aria-expanded",String(!f.hidden)); if(!f.hidden) $("linkUrl").focus(); };
   $("linkForm").onsubmit=async e=>{ e.preventDefault(); if(await addLink($("linkUrl").value,$("linkNote").value)){ $("linkUrl").value=""; $("linkNote").value=""; } };
   addEventListener("paste",e=>{ if(/INPUT|TEXTAREA/.test(e.target.tagName)) return;
     const fs=[...(e.clipboardData?.files||[])]; if(fs.length){ e.preventDefault(); handleFiles(fs); return; }
@@ -348,7 +370,7 @@ const CONFIG = {
   setInterval(()=>S.items.length&&render(),60000);
 
   /* boot */
-  buildDepts(); ownerUI();
+  ownerUI();
   if(!window.supabase||CONFIG.SUPABASE_URL.startsWith("__")){ notice("This site isn't connected to its storage yet.",true); $("pickBtn").disabled=$("linkBtn").disabled=true; render(); return; }
   sb=window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY,{auth:{persistSession:false}});
   (async()=>{
