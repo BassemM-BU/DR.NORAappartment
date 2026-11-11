@@ -196,6 +196,18 @@ const CONFIG = {
 
   try { const d = localStorage.getItem("dn_dept"); if (d && CONFIG.DEPARTMENTS.includes(d)) S.dept = d; } catch {}
   try { S.pin = sessionStorage.getItem("dn_pin"); } catch {}
+  // Delete keys for posts made on this device (lets people remove their own uploads)
+  let MINE = {}; try { MINE = JSON.parse(localStorage.getItem("dn_mine")||"{}")||{}; } catch {}
+  const saveMine = () => { try { localStorage.setItem("dn_mine", JSON.stringify(MINE)); } catch {} };
+  const newToken = () => { const a=new Uint8Array(24); crypto.getRandomValues(a); return [...a].map(b=>b.toString(16).padStart(2,"0")).join(""); };
+  async function createPost(fields){
+    const token=newToken();
+    const {data,error}=await sb.rpc("create_post",{p_kind:fields.kind,p_department:fields.department,p_file_path:fields.file_path||null,
+      p_link_url:fields.link_url||null,p_note:fields.note||null,p_file_name:fields.file_name||null,p_token:token});
+    if(error) throw error;
+    const row=Array.isArray(data)?data[0]:data;
+    MINE[row.id]=token; saveMine(); return row;
+  }
 
   /* helpers */
   let tt; const toast = m => { const t=$("toast"); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true,3200); };
@@ -286,11 +298,14 @@ const CONFIG = {
     const meta=el("div",{class:"meta"});
     if(i.note) meta.append(el("div",{class:"note",text:i.note}));
     const foot=el("div",{class:"foot"},[el("span",{},[el("span",{class:"tag",text:i.department||"—"})," · "+ago(i.created_at)])]);
-    if(S.pin){ const d=el("button",{class:"del",type:"button",text:"Delete"}); let armed=false;
+    const myTok=MINE[i.id];
+    if(S.pin||myTok){ const d=el("button",{class:"del",type:"button",text:"Delete"}); let armed=false;
       d.onclick=async()=>{ if(!armed){armed=true;d.textContent="Tap again to delete";setTimeout(()=>{armed=false;d.textContent="Delete";},4000);return;}
         d.disabled=true; d.textContent="Deleting…";
-        const {data,error}=await sb.rpc("delete_post",{p_id:i.id,p_pin:S.pin});
-        if(error||data!==true){ d.disabled=false; d.textContent="Delete"; toast(error?"Couldn't delete — try again":"Wrong owner PIN"); if(data===false){S.pin=null;try{sessionStorage.removeItem("dn_pin");}catch{} ownerUI(); render();} return; }
+        const {data,error}= myTok ? await sb.rpc("delete_own_post",{p_id:i.id,p_token:myTok}) : await sb.rpc("delete_post",{p_id:i.id,p_pin:S.pin});
+        if(error||data!==true){ d.disabled=false; d.textContent="Delete"; toast(error?"Couldn't delete — try again":(myTok?"Couldn't delete this post":"Wrong owner PIN"));
+          if(!myTok&&data===false){S.pin=null;try{sessionStorage.removeItem("dn_pin");}catch{} ownerUI(); render();} return; }
+        delete MINE[i.id]; saveMine();
         S.items=S.items.filter(x=>x.id!==i.id); render(); toast("Deleted"); };
       foot.append(d); }
     meta.append(foot); kids.push(meta);
@@ -336,9 +351,8 @@ const CONFIG = {
       const path=slug(dept)+"/"+Date.now()+"-"+Math.random().toString(36).slice(2,8)+"."+ext;
       const up=await sb.storage.from(CONFIG.BUCKET).upload(path,blob,{contentType:type,upsert:false});
       if(up.error) throw up.error;
-      const ins=await sb.from("posts").insert({kind:isVid?"video":"image",file_path:path,file_name:(f.name||"").slice(0,200),department:dept}).select().single();
-      if(ins.error) throw ins.error;
-      addItem(ins.data); r.ok();
+      const row=await createPost({kind:isVid?"video":"image",file_path:path,file_name:(f.name||"").slice(0,200),department:dept});
+      addItem(row); r.ok();
     }catch(e){ const m=String(e&&(e.message||e.error)||""); r.err(/size|large|exceed/i.test(m)?"Too big (max "+CONFIG.MAX_MB+" MB)":/mime|type/i.test(m)?"File type not allowed":"Upload failed — try again"); console.error(e); }
   }
   const needRoom=()=>{ if(S.dept!=="all") return false; toast("Tap a room first, then add"); $("depts").scrollIntoView({behavior:"smooth",block:"start"}); return true; };
@@ -347,8 +361,8 @@ const CONFIG = {
   async function addLink(raw,note){
     if(needRoom()) return false;
     const url=normUrl(raw); if(!url){ toast("That doesn't look like a web link"); return false; }
-    const {data,error}=await sb.from("posts").insert({kind:"link",link_url:url,note:(note||"").trim().slice(0,300)||null,department:currentAddDept()}).select().single();
-    if(error){ toast("Couldn't add the link — try again"); console.error(error); return false; }
+    let data; try { data=await createPost({kind:"link",link_url:url,note:(note||"").trim().slice(0,300)||null,department:currentAddDept()}); }
+    catch(error){ toast("Couldn't add the link — try again"); console.error(error); return false; }
     addItem(data); toast("Link added to "+data.department); return true;
   }
   function addItem(row){ if(!S.items.some(x=>x.id===row.id)){ S.items.unshift(row); S.items.sort((a,b)=>b.created_at.localeCompare(a.created_at)); render(); } }
